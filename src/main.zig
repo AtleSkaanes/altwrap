@@ -15,9 +15,15 @@ pub fn main() !void {
     const flattened = try flatten(alloc, argv);
     defer alloc.free(flattened);
 
+    // enter alt buffer
+    printLog("\x1b[?1049h", .{});
+
     const exitcode = runProgram(ctx) catch {
         panicWithErr("Failed to run program '{s}'", .{flattened});
     };
+
+    if (ctx.time != 0)
+        wait(ctx, exitcode);
 
     exit(exitcode);
 }
@@ -49,10 +55,6 @@ pub fn runProgram(ctx: Ctx) !u8 {
     const flattened = try flatten(alloc, argv);
     defer alloc.free(flattened);
 
-    // enter alt buffer
-    printLog("\x1b[?1049h", .{});
-    // leave alt buffer
-    defer printLog("\x1b[?1049l", .{});
     // Move cursor to 0, 0
     printLog("\x1b[H", .{});
 
@@ -67,6 +69,17 @@ pub fn runProgram(ctx: Ctx) !u8 {
         .Stopped => |c| @truncate(c),
         .Unknown => |c| @truncate(c),
     };
+}
+
+fn wait(ctx: Ctx, code: u8) void {
+    const name = ctx.program orelse "null";
+    if (code == 0) {
+        printLog(blue("\nProgram '{s}' finished\n"), .{name});
+    } else {
+        printLog(red("\nProgram '{s}' exited with error code {}\n"), .{ name, code });
+    }
+
+    std.Thread.sleep(std.time.ns_per_ms * ctx.time);
 }
 
 fn sigintHandler(sig: c_int) callconv(.C) void {
@@ -86,6 +99,10 @@ pub fn flatten(allocator: std.mem.Allocator, nested: []const []const u8) std.mem
     return try list.toOwnedSlice();
 }
 
+pub fn red(comptime str: []const u8) []const u8 {
+    return "\x1b[31m" ++ str ++ "\x1b[0m";
+}
+
 pub fn blue(comptime str: []const u8) []const u8 {
     return "\x1b[34m" ++ str ++ "\x1b[0m";
 }
@@ -100,6 +117,7 @@ pub fn printHelp(arg0: []const u8) void {
         \\{s}
         \\  --no-env            Execute the program with no environment variables
         \\  --no-path           Don't search for the program in $PATH
+        \\  -t, --time=MS       Set a timer for how long the alt screen should persist, after the input program has completed
         \\  --with-env=K:V,..   Add environment variables that the program will be executed with, in K:V pairs, each pair seperated by a ','
         \\  -v, --version       Prints the current version
         \\  -h, --help          Print the help page
@@ -115,7 +133,7 @@ pub fn printLog(comptime fmt: []const u8, args: anytype) void {
     std.io.getStdOut().writer().print(fmt, args) catch {};
 }
 pub fn printErr(comptime fmt: []const u8, args: anytype) void {
-    std.io.getStdOut().writer().print("\x1b[31m[ALTWRAP ERROR]: " ++ fmt ++ "\x1b[0m", args) catch {};
+    std.io.getStdOut().writer().print(red("[ALTWRAP ERROR]: " ++ fmt), args) catch {};
 }
 pub fn panicWithErr(comptime fmt: []const u8, args: anytype) noreturn {
     printErr(fmt, args);
@@ -131,6 +149,7 @@ const Ctx = struct {
     progam_opt: []const []const u8 = &.{},
     no_env: bool = false,
     no_path: bool = false,
+    time: u64 = 0,
     with_env: [][2][]const u8 = &.{},
 
     pub fn init(allocator: std.mem.Allocator) Self {
@@ -234,7 +253,7 @@ pub fn parseCtx(allocator: std.mem.Allocator) std.mem.Allocator.Error!Ctx {
 
                 var sets = std.mem.splitScalar(u8, sets_raw, ',');
                 if (sets.peek() == null) {
-                    try errors.append(try allocator.dupe(u8, "--with-env option expected sets of environments keys and values formatted like K:V,..."));
+                    try errors.append(try allocator.dupe(u8, "--with-env option expected sets of environments keys and values formatted like =K:V,..."));
                     continue;
                 }
 
@@ -252,6 +271,26 @@ pub fn parseCtx(allocator: std.mem.Allocator) std.mem.Allocator.Error!Ctx {
                 }
 
                 ctx.with_env = try env_list.toOwnedSlice();
+                continue;
+            }
+            if (std.mem.startsWith(u8, arg, "--time") or std.mem.startsWith(u8, arg, "-t")) {
+                var split_arg = std.mem.splitScalar(u8, arg, '=');
+
+                // Get rid of --timeout / -t
+                _ = split_arg.next();
+
+                const num_str = split_arg.next() orelse {
+                    try errors.append(try allocator.dupe(u8, "--time option expects a number as time in MS, got nothing"));
+                    continue;
+                };
+
+                const num = std.fmt.parseInt(u64, num_str, 0) catch {
+                    const errmsg = try std.fmt.allocPrint(allocator, "--time option expects a valid number as time in MS, got '{s}'", .{num_str});
+                    try errors.append(errmsg);
+                    continue;
+                };
+
+                ctx.time = num;
                 continue;
             }
             if (!std.mem.startsWith(u8, arg, "-")) {
