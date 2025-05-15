@@ -195,26 +195,6 @@ const Ctx = struct {
         }
         return env_map;
     }
-
-    pub fn debugPrint(self: Self) void {
-        if (self.program) |name| {
-            printLog("PROGRAM: {s}\n", .{name});
-
-            printLog("FLAGS: (\n", .{});
-            for (self.progam_opt) |opt| {
-                printLog("\t{s}\n", .{opt});
-            }
-            printLog(")\n", .{});
-        }
-        printLog("NO-ENV: {}\n", .{self.no_env});
-        printLog("NO-PATH: {}\n", .{self.no_path});
-
-        printLog("ENV: (\n", .{});
-        for (self.with_env) |set| {
-            printLog("\t{s} : {s}\n", .{ set[0], set[1] });
-        }
-        printLog(")\n", .{});
-    }
 };
 
 pub fn parseCtx(allocator: std.mem.Allocator) std.mem.Allocator.Error!Ctx {
