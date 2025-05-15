@@ -21,8 +21,10 @@ pub fn main() !void {
     const exitcode = runProgram(ctx) catch {
         panicWithErr("Failed to run program '{s}'", .{flattened});
     };
+    // Enter again in case of the input program exits
+    printLog("\x1b[?1049h", .{});
 
-    if (ctx.time != 0)
+    if (ctx.time != 0 or ctx.enter)
         wait(ctx, exitcode);
 
     exit(exitcode);
@@ -79,7 +81,11 @@ fn wait(ctx: Ctx, code: u8) void {
         printLog(red("\nProgram '{s}' exited with error code {}\n"), .{ name, code });
     }
 
-    std.Thread.sleep(std.time.ns_per_ms * ctx.time);
+    if (ctx.enter) {
+        _ = std.io.getStdIn().reader().readByte() catch {};
+    } else {
+        std.Thread.sleep(std.time.ns_per_ms * ctx.time);
+    }
 }
 
 fn sigintHandler(sig: c_int) callconv(.C) void {
@@ -117,7 +123,8 @@ pub fn printHelp(arg0: []const u8) void {
         \\{s}
         \\  --no-env            Execute the program with no environment variables
         \\  --no-path           Don't search for the program in $PATH
-        \\  -t, --time=MS       Set a timer for how long the alt screen should persist, after the input program has completed
+        \\  -e, --enter         Waits for an enter press to close the alt screen, after the input program has finished
+        \\  -t, --time=MS       Set a timer for how long the alt screen should persist, after the input program has finished
         \\  --with-env=K:V,..   Add environment variables that the program will be executed with, in K:V pairs, each pair seperated by a ','
         \\  -v, --version       Prints the current version
         \\  -h, --help          Print the help page
@@ -149,6 +156,7 @@ const Ctx = struct {
     progam_opt: []const []const u8 = &.{},
     no_env: bool = false,
     no_path: bool = false,
+    enter: bool = false,
     time: u64 = 0,
     with_env: [][2][]const u8 = &.{},
 
@@ -237,6 +245,10 @@ pub fn parseCtx(allocator: std.mem.Allocator) std.mem.Allocator.Error!Ctx {
                 ctx.no_path = true;
                 continue;
             }
+            if (std.mem.eql(u8, arg, "--enter") or std.mem.eql(u8, arg, "-e")) {
+                ctx.enter = true;
+                continue;
+            }
             if (std.mem.startsWith(u8, arg, "--with-env")) {
                 var env_list = std.ArrayList([2][]const u8).init(allocator);
                 defer env_list.deinit();
@@ -300,11 +312,11 @@ pub fn parseCtx(allocator: std.mem.Allocator) std.mem.Allocator.Error!Ctx {
 
             if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
                 printHelp(name);
-                exit(0);
+                std.process.exit(0);
             }
             if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) {
                 printLog("{s} v{s}\n", .{ name, config.version });
-                exit(0);
+                std.process.exit(0);
             }
 
             // Unreachable state by valid flags
