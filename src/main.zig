@@ -114,13 +114,12 @@ pub fn blue(comptime str: []const u8) []const u8 {
 }
 
 pub fn printHelp(arg0: []const u8) void {
-    std.io.getStdOut().writer().print(
-        \\{s} v{s}
+    std.io.getStdOut().writer().print(blue("{s} v{s}\n") ++
         \\Execute programs in the alternate screen buffer
         \\
-        \\{s} {s} [options] program [program options]\n"
+    ++ blue("\nUSAGE: ") ++ "{s} [options] program [program options]\n\n" ++
         \\
-        \\{s}
+    ++ blue("OPTIONS:\n") ++
         \\  --no-env            Execute the program with no environment variables
         \\  --no-path           Don't search for the program in $PATH
         \\  -e, --enter         Waits for an enter press to close the alt screen, after the input program has finished
@@ -129,7 +128,7 @@ pub fn printHelp(arg0: []const u8) void {
         \\  -v, --version       Prints the current version
         \\  -h, --help          Print the help page
         \\
-    , .{ arg0, config.version, blue("USAGE:"), arg0, blue("OPTIONS:") }) catch {};
+    , .{ arg0, config.version, arg0 }) catch {};
 }
 
 pub fn exit(code: u8) noreturn {
